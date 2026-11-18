@@ -28,7 +28,9 @@ def block_pixels(img, offset, count):
 def embed(img, text):
     bits = np.repeat(pack_message(text, capacity_bytes(img)), REPEAT)
     pixels = block_pixels(img, 0, bits.size)
-    rgb = img[pixels]
+    # A change of Q in this coefficient can shift a pixel by at most Q / 4.
+    margin = (Q + 3) // 4
+    rgb = img[pixels].clip(margin, 255 - margin)
     brightness = rgb @ LUMINANCE
     coeffs = dctn(brightness, axes=(-2, -1), norm="ortho")
     scaled = coeffs[:, ROW, COL] / Q

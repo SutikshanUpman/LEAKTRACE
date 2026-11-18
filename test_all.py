@@ -1,6 +1,7 @@
 """Run project checks with python test_all.py."""
 
 from io import BytesIO
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -44,7 +45,9 @@ def test_dct():
 
 
 def test_full_chain():
-    cover = np.random.default_rng(7).integers(0, 256, (512, 512, 3), dtype=np.uint8)
+    sample = Path(__file__).with_name("samples") / "blue-marble.jpg"
+    with Image.open(sample) as image:
+        cover = np.array(image.convert("RGB"))
     for method in (stego_lsb, stego_dct):
         for recipient_id in (1, 2, 3):
             memo = stego_text.embed_id(stego_text.MEMO, recipient_id)
