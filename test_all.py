@@ -2,6 +2,7 @@
 
 import numpy as np
 
+import stego_dct
 import stego_lsb
 import stego_text
 
@@ -28,7 +29,18 @@ def test_lsb():
     assert stego_lsb.capacity_bytes(cover) == 380
 
 
+def test_dct():
+    cover = np.random.default_rng(42).integers(0, 256, (1025, 1027, 3), dtype=np.uint8)
+    message = "Frequency-domain memo: café ✓"
+    stego = stego_dct.embed(cover, message)
+    assert stego_dct.extract(stego) == message
+    assert stego_dct.capacity_bytes(cover) == 678
+    assert np.array_equal(stego[-1], cover[-1])
+    assert np.array_equal(stego[:, -3:], cover[:, -3:])
+
+
 if __name__ == "__main__":
     test_text()
     test_lsb()
+    test_dct()
     print("All tests passed")
