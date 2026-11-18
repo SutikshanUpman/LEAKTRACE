@@ -88,12 +88,35 @@ def receiver():
     if upload is None and sent_png:
         st.caption(f"Using the latest Sender image ({sent_method}).")
     method = st.radio("Extraction method", METHODS, index=list(METHODS).index(sent_method), horizontal=True)
-    if st.button("Extract", disabled=upload is None and sent_png is None):
+    unavailable = upload is None and sent_png is None
+    extract = st.button("Extract", disabled=unavailable)
+    with st.expander("JPEG compression demo"):
+        quality = st.slider("JPEG quality", 50, 95, 85)
+        simulate = st.button("Simulate JPEG compression", disabled=unavailable)
+    if extract or simulate:
         try:
-            source = upload if upload is not None else BytesIO(sent_png)
-            st.text(METHODS[method].extract(read_image(source)))
+            image = read_image(upload if upload is not None else BytesIO(sent_png))
+            memo = METHODS[method].extract(image)
+            st.text(memo)
+            if simulate:
+                jpeg_results(image, memo, method, quality)
         except (OSError, ValueError, Image.DecompressionBombError) as error:
             st.error(str(error))
+
+
+def jpeg_results(image, memo, method, quality):
+    data = BytesIO()
+    Image.fromarray(image).save(data, format="JPEG", quality=quality)
+    compressed = read_image(data)
+    rows = []
+    for name, algorithm in METHODS.items():
+        try:
+            recovered = algorithm.extract(compressed) == memo
+        except ValueError:
+            recovered = False
+        rows.append({"Extractor": name, "Full memo": "Recovered" if recovered else "Failed"})
+    st.caption(f"JPEG quality {quality} on the same {method} stego image. Compare by repeating with each embedding method.")
+    st.table(rows)
 
 
 def trace():
