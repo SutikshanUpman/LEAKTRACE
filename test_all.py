@@ -1,5 +1,8 @@
 """Run project checks with python test_all.py."""
 
+import numpy as np
+
+import stego_lsb
 import stego_text
 
 
@@ -15,6 +18,17 @@ def test_text():
     assert stego_text.extract_id(memo + " large")[0] is None
 
 
+def test_lsb():
+    cover = np.random.default_rng(42).integers(0, 256, (32, 32, 3), dtype=np.uint8)
+    message = "Launch memo: café ✓"
+    stego = stego_lsb.embed(cover, message)
+    assert stego_lsb.extract(stego) == message
+    assert np.abs(stego.astype(int) - cover).max() == 1
+    assert not np.shares_memory(cover, stego)
+    assert stego_lsb.capacity_bytes(cover) == 380
+
+
 if __name__ == "__main__":
     test_text()
+    test_lsb()
     print("All tests passed")
