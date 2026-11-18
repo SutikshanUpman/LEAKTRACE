@@ -7,7 +7,7 @@ PAIRS = [
     ("show", "display"), ("need", "require"), ("end", "finish"), ("fast", "quick"),
 ]
 LOOKUP = {word: (index, bit) for index, pair in enumerate(PAIRS) for bit, word in enumerate(pair)}
-PATTERN = re.compile(r"\b(?:" + "|".join(LOOKUP) + r")\b", re.IGNORECASE | re.ASCII)
+PATTERN = re.compile(r"\b(?ai:" + "|".join(LOOKUP) + r")\b")
 MEMO = "We need to start the big launch fast. Please help the team buy the tools, show the plan, and end the review early."
 
 

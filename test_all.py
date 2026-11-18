@@ -1,6 +1,9 @@
 """Run project checks with python test_all.py."""
 
+from io import BytesIO
+
 import numpy as np
+from PIL import Image
 
 import stego_dct
 import stego_lsb
@@ -17,6 +20,7 @@ def test_text():
     assert stego_text.extract_id(repeated.splitlines()[1])[0] == 5
     assert stego_text.extract_id("The large launch")[0] is None
     assert stego_text.extract_id(memo + " large")[0] is None
+    assert stego_text.coverage("ébig") == 0
 
 
 def test_lsb():
@@ -39,8 +43,22 @@ def test_dct():
     assert np.array_equal(stego[:, -3:], cover[:, -3:])
 
 
+def test_full_chain():
+    cover = np.random.default_rng(7).integers(0, 256, (512, 512, 3), dtype=np.uint8)
+    for method in (stego_lsb, stego_dct):
+        for recipient_id in (1, 2, 3):
+            memo = stego_text.embed_id(stego_text.MEMO, recipient_id)
+            png = BytesIO()
+            Image.fromarray(method.embed(cover, memo)).save(png, format="PNG")
+            with Image.open(png) as image:
+                recovered = method.extract(np.array(image))
+            assert recovered == memo
+            assert stego_text.extract_id(recovered)[0] == recipient_id
+
+
 if __name__ == "__main__":
     test_text()
     test_lsb()
     test_dct()
+    test_full_chain()
     print("All tests passed")
