@@ -15,56 +15,65 @@ Run `python test_all.py` to check all 255 fingerprint IDs and the PNG round trip
 
 ## Architecture
 
-LeakTrace runs as one Streamlit app with three tabs. The text layer encodes the recipient ID in the memo's wording. The image layer carries the personalized memo as a byte payload. After extraction, the recipient-specific wording can be traced from a pasted text copy alone.
+LeakTrace uses **word choice to identify a recipient's copy** and **image embedding to carry that copy in a PNG**.
 
 ```mermaid
-flowchart LR
-    Inputs["Sender: memo and recipient ID"] --> Text["Personalize wording"]
-    Text --> Payload["Pack UTF-8 memo with length header"]
-    Cover["Cover image"] --> Embed["Embed with LSB or DCT"]
-    Payload --> Embed
-    Embed --> PNG["Downloadable stego PNG"]
-    PNG --> Extract["Recipient: extract with the same method"]
-    Extract --> Memo["Recovered personalized memo"]
-    Memo --> Paste["Leak Trace: pasted copy"]
-    Paste --> Votes["Read eight bits from synonym votes"]
-    Votes --> Registry["Look up decoded ID in recipient registry"]
+flowchart TD
+    Sender["Sender · Personalize and embed the memo"]
+    Recipient["Recipient · Extract the memo"]
+    Trace["Leak Trace · Recover the recipient ID"]
+    Sender -->|"Stego PNG"| Recipient
+    Recipient -->|"Copied memo text"| Trace
 ```
 
-### Components and interfaces
+### Follow one memo
 
-| Component | Responsibility |
-| --- | --- |
-| [`app.py`](app.py) | Coordinates Sender, Recipient, and Leak Trace. Converts uploads to RGB arrays with Pillow, picks the image method, prepares previews and downloads, and maps decoded IDs to names. |
-| [`stego_text.py`](stego_text.py) | Defines the ordered synonym pairs. `embed_id(text, recipient_id)` creates personalized wording. `extract_id(text)` returns the decoded ID and the eight observed bits. |
-| [`stego_lsb.py`](stego_lsb.py) | Implements spatial-domain embedding and provides the payload packing, header validation, and UTF-8 decoding helpers shared by both image methods. |
-| [`stego_dct.py`](stego_dct.py) | Implements frequency-domain embedding and recovery using NumPy and SciPy. Imports the shared payload helpers from `stego_lsb.py`. |
-| [`test_all.py`](test_all.py) | Checks text encoding, image round trips, and recovery of both the memo and recipient ID after PNG export and reload. |
+1. **Sender** chooses Asha and a cover image. Asha's ID, `00000001`, changes `fast` to `quick` in the example memo. Sender embeds the personalized memo with LSB or DCT and exports a PNG.
+2. **Recipient** opens the PNG and uses the same embedding method to recover the personalized memo. In the same Streamlit session, Recipient can use the latest successful Sender output. An upload takes precedence.
+3. **Leak Trace** reads the synonym choices in a pasted copy of the memo, reconstructs `00000001`, and looks up Asha in the recipient registry. The pasted text is all this step needs.
 
-Both image modules expose `capacity_bytes(image)`, `embed(image, text)`, and `extract(image)`. They use an 8-bit RGB array of shape `(height, width, 3)`. Embedding returns a new array, leaving the cover available for comparison. With valid inputs, Sender produces one PNG for the selected recipient. The app keeps the latest successful PNG bytes and the selected method in Streamlit session state for the Recipient tab. An uploaded image takes precedence over that session copy. The recipient registry is a dictionary in `app.py`.
+### How the wording carries the ID
 
-### Text fingerprint
+- **Write the bits.** The eight ordered synonym pairs represent the bits of an ID from 1 to 255, most significant first. Within each pair, the first word means `0` and the second means `1`. Sender requires a whole-word match for every pair and rewrites each match to the variant for the selected ID.
+- **Read the bits.** Leak Trace counts occurrences of both words in each pair. The higher count decides the bit, so word order is irrelevant. A missing pair or a tie leaves an unknown bit.
+- **Look up the ID.** When all eight bits are known, Leak Trace converts them to an integer and reports the matching name or an unregistered ID.
 
-Each of the eight ordered synonym pairs represents one bit of an ID from 1 to 255. The first pair represents the most significant bit. Within each pair, the first word represents 0 and the second word represents 1. The Sender checks that the memo contains at least one whole-word match for every pair, then replaces each matching occurrence with the word for the corresponding bit. For example, Asha's ID is `00000001`, so the last pair, `fast / quick`, uses `quick`.
+### How the image carries the memo
 
-Leak Trace counts both variants of each pair in the pasted text and takes the majority vote. Reordering words leaves these votes unchanged. An absent pair or a tied count leaves that bit unknown and prevents a complete ID. If all eight bits resolve, the app converts them to an integer and reports the registered name or an unregistered ID.
-
-### Image payload and recovery
-
-Both image methods carry the same binary payload. The receiver selects the method used by the sender. The method stored in session state helps select it for an in-app handoff.
+**Shared payload format**
 
 ```text
-[4-byte big-endian length in bytes][personalized memo encoded as UTF-8]
+[4-byte big-endian byte count] [UTF-8 bytes of the personalized memo]
 ```
 
-The image encoder rejects empty memos and payloads that exceed its capacity. During extraction, it reads the header first and validates the declared length against the image's capacity before reading the memo bytes and decoding UTF-8. Invalid lengths and invalid UTF-8 are reported as extraction errors. The length counts bytes, so some characters occupy more than one byte.
+The encoder rejects empty memos and memos that exceed capacity. The decoder reads the byte count first, checks it against capacity, and then decodes that many bytes as UTF-8. An invalid count or invalid UTF-8 produces an extraction error.
 
-| Method | Embedding and recovery | Maximum memo bytes on the bundled 1280 × 1280 cover |
+| Method | Where each bit goes | Memo capacity on the bundled 1280 × 1280 cover |
 | --- | --- | ---: |
-| **LSB** | Walks RGB channel values in row order, replacing the least significant bit of each value with one payload bit. Extraction reads the same bits from the same positions. Capacity is `max(0, (height * width * 3 - 32) // 8)`. | 614,396 |
-| **DCT** | Walks complete 8 × 8 blocks in row order. Uses one luminance coefficient per block and repeats each bit across three consecutive blocks. Capacity is `max(0, (((height // 8) * (width // 8)) // 3 - 32) // 8)`. | 1,062 |
+| **LSB** (least significant bit) | The lowest bit of one RGB channel value | 614,396 bytes |
+| **DCT** (discrete cosine transform) | One luminance coefficient in each of three consecutive 8 × 8 blocks | 1,062 bytes |
 
-For DCT, the encoder reserves headroom in the selected RGB blocks before computing luminance. It uses an orthonormal 2D DCT and moves the coefficient at row 4, column 3 (zero-based) to the nearest multiple of 30 whose index is even for 0 or odd for 1. It applies the inverse transform and adds the resulting brightness change to all three RGB channels. The decoder recomputes that coefficient, rounds its value divided by 30 to read the index parity, and takes the majority across each group of three blocks. Partial blocks at the right and bottom edges are skipped.
+**LSB** walks the pixels in row order and overwrites the lowest bits of their RGB channel values. The decoder walks the same channels and reads those bits.
+
+**DCT** uses complete 8 × 8 blocks in row order, skipping partial edge blocks.
+
+1. Reserve RGB headroom for brightness changes and apply an orthonormal 2D DCT to each block's luminance.
+2. Move the coefficient at zero-based row 4, column 3 to the nearest allowed multiple of 30. Even multiples carry `0` and odd multiples carry `1`. Apply the inverse transform and add the brightness change to all three RGB channels.
+3. To decode a block, divide the coefficient by 30, round to an integer, and read whether it is even or odd. Take the majority across three consecutive blocks to recover each payload bit.
+
+To calculate capacity, start with one bit per RGB channel for LSB, or one bit per group of three complete blocks for DCT. Subtract the 32-bit header, divide by eight, and round down to a whole number of bytes. The minimum capacity is zero.
+
+### Where to find the code
+
+| File | Responsibility |
+| --- | --- |
+| [`app.py`](app.py) | Runs the three tabs, converts images to RGB with Pillow, holds the recipient registry, and stores the latest PNG and method in session state. |
+| [`stego_text.py`](stego_text.py) | Defines the synonym pairs and encodes or recovers the recipient ID. |
+| [`stego_lsb.py`](stego_lsb.py) | Implements LSB and provides the shared payload packing and decoding helpers. |
+| [`stego_dct.py`](stego_dct.py) | Implements DCT with NumPy and SciPy and uses the shared payload helpers. |
+| [`test_all.py`](test_all.py) | Checks text fingerprints and PNG round trips through both embedding methods. |
+
+Both image modules expose `capacity_bytes(image)`, `embed(image, text)`, and `extract(image)`. The image is an 8-bit RGB NumPy array with shape `(height, width, 3)`. Embedding returns a new array so Sender can compare it with the original cover.
 
 ## Demo
 
