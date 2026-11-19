@@ -15,15 +15,18 @@ from stego_text import MEMO, PAIRS, PATTERN, embed_id, extract_id, votes_for
 RECIPIENTS = {1: "Asha", 2: "Ravi", 3: "Neha", 4: "Karan", 5: "Meera"}
 METHODS = {"LSB": stego_lsb, "DCT": stego_dct}
 IMAGE_TYPES = ["png", "jpg", "jpeg"]
+# __file__ locates this script. with_name points to the sibling samples directory.
 SAMPLE = Path(__file__).with_name("samples") / "blue-marble.jpg"
 
 
 def read_image(source):
+    # The with block closes the opened image after the RGB array is created.
     with Image.open(source) as image:
         return np.array(image.convert("RGB"))
 
 
 def show_memos(original, recipient_id):
+    # This nested callback can use recipient_id from the enclosing function.
     def highlight(match):
         word = escape(match[0])
         changed = escape(embed_id(match[0], recipient_id))
@@ -33,6 +36,7 @@ def show_memos(original, recipient_id):
     left.caption("Original memo")
     left.text(original)
     right.caption("Personalized memo")
+    # Escape the memo's HTML characters before adding the highlight tags.
     marked = PATTERN.sub(highlight, escape(original))
     right.html(f'<div style="white-space: pre-wrap; overflow-wrap: anywhere">{marked}</div>')
 
@@ -40,12 +44,15 @@ def show_memos(original, recipient_id):
 def sender():
     memo = st.text_area("Memo", MEMO, height=100)
     left, right = st.columns(2)
+    # Iterating a dict yields its keys. The label function displays each ID's name.
     recipient = left.selectbox("Recipient", RECIPIENTS, format_func=RECIPIENTS.get)
     method = right.radio("Sender method", METHODS, horizontal=True)
     cover_upload = st.file_uploader("Cover image (optional, uses Blue Marble by default)", type=IMAGE_TYPES)
     st.subheader("1. Recipient fingerprint")
+    # The f-string format 08b displays eight binary digits with leading zeroes.
     st.write(f"{RECIPIENTS[recipient]} · ID {recipient} · `{recipient:08b}`")
     st.subheader("2. Memo wording")
+    # zip pairs each synonym pair with its counts. any detects a nonzero count.
     missing = [" / ".join(pair) for pair, votes in zip(PAIRS, votes_for(memo)) if not any(votes)]
     st.caption(f"{len(PAIRS) - len(missing)}/{len(PAIRS)} synonym pairs present")
     if missing:
@@ -65,6 +72,7 @@ def sender():
     except (OSError, ValueError, Image.DecompressionBombError) as error:
         st.error(f"Could not create the stego image. {error}")
         return
+    # Convert to signed integers before subtracting so negative values do not wrap around.
     delta = np.abs(stego.astype(np.int16) - cover)
     mse = np.mean(delta.astype(float) ** 2)
     psnr = 10 * np.log10(255**2 / mse) if mse else float("inf")
@@ -73,6 +81,7 @@ def sender():
     for column, image, caption in zip(st.columns(3), (cover, stego, difference), captions):
         column.image(image, caption=caption)
     st.caption(f"PSNR: {psnr:.2f} dB")
+    # BytesIO acts like an open binary file in memory for the PNG encoder.
     png = BytesIO()
     Image.fromarray(stego).save(png, format="PNG")
     data = png.getvalue()
@@ -84,6 +93,7 @@ def sender():
 
 def receiver():
     upload = st.file_uploader("Stego image", type=IMAGE_TYPES)
+    # get supplies a fallback tuple. Unpacking assigns its two entries to separate names.
     sent_png, sent_method = st.session_state.get("sent", (None, "LSB"))
     if upload is None and sent_png:
         st.caption(f"Using the latest Sender image ({sent_method}).")
@@ -128,6 +138,7 @@ def trace():
     recipient, bits = extract_id(leaked)
     rows = []
     for pair, votes, bit in zip(PAIRS, votes_for(leaked), bits):
+        # The generator passes only the words with nonzero counts to join.
         words = ", ".join(word for word, count in zip(pair, votes) if count)
         rows.append({"Pair": " / ".join(pair), "Found": words or "Not found", "Bit": "?" if bit is None else str(bit)})
     st.table(rows)

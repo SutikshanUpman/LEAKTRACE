@@ -25,10 +25,12 @@ def test_text():
 
 
 def test_lsb():
+    # A fixed seed gives this test repeatable random pixels.
     cover = np.random.default_rng(42).integers(0, 256, (32, 32, 3), dtype=np.uint8)
     message = "Launch memo: café ✓"
     stego = stego_lsb.embed(cover, message)
     assert stego_lsb.extract(stego) == message
+    # Cast before subtraction to keep negative differences from wrapping in uint8.
     assert np.abs(stego.astype(int) - cover).max() == 1
     assert not np.shares_memory(cover, stego)
     assert stego_lsb.capacity_bytes(cover) == 380
@@ -40,6 +42,7 @@ def test_dct():
     stego = stego_dct.embed(cover, message)
     assert stego_dct.extract(stego) == message
     assert stego_dct.capacity_bytes(cover) == 678
+    # Negative slice indices count back from the end. These are the final row and three columns.
     assert np.array_equal(stego[-1], cover[-1])
     assert np.array_equal(stego[:, -3:], cover[:, -3:])
 
@@ -53,12 +56,14 @@ def test_full_chain():
             memo = stego_text.embed_id(stego_text.MEMO, recipient_id)
             png = BytesIO()
             Image.fromarray(method.embed(cover, memo)).save(png, format="PNG")
+            # Pillow accepts the in-memory PNG buffer in place of a file path.
             with Image.open(png) as image:
                 recovered = method.extract(np.array(image))
             assert recovered == memo
             assert stego_text.extract_id(recovered)[0] == recipient_id
 
 
+# Python sets __name__ to "__main__" when this file is run directly.
 if __name__ == "__main__":
     test_text()
     test_lsb()
