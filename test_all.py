@@ -1,7 +1,9 @@
 """Run project checks with python test_all.py."""
 
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
+import socket
 
 import numpy as np
 from PIL import Image
@@ -9,6 +11,7 @@ from PIL import Image
 import stego_dct
 import stego_lsb
 import stego_text
+import tcp_transfer
 
 
 def test_text():
@@ -47,20 +50,51 @@ def test_dct():
     assert np.array_equal(stego[:, -3:], cover[:, -3:])
 
 
+def transfer_in_test(method, png):
+    sender, receiver = socket.socketpair()
+    with sender, receiver, ThreadPoolExecutor(max_workers=1) as worker:
+        sender.settimeout(5)
+        receiver.settimeout(5)
+        # Write in another thread so the receiver can read while the socket buffer fills.
+        transfer = worker.submit(tcp_transfer.send_png, sender, method, png)
+        result = tcp_transfer.receive_png(receiver)
+        transfer.result()
+    return result
+
+
 def test_full_chain():
     sample = Path(__file__).with_name("samples") / "blue-marble.jpg"
     with Image.open(sample) as image:
         cover = np.array(image.convert("RGB"))
-    for method in (stego_lsb, stego_dct):
+    for method_name, method in (("lsb", stego_lsb), ("dct", stego_dct)):
         for recipient_id in (1, 2, 3):
             memo = stego_text.embed_id(stego_text.MEMO, recipient_id)
             png = BytesIO()
             Image.fromarray(method.embed(cover, memo)).save(png, format="PNG")
+            original = png.getvalue()
+            received_method, received = transfer_in_test(method_name, original)
+            assert (received_method, received) == (method_name, original)
             # Pillow accepts the in-memory PNG buffer in place of a file path.
-            with Image.open(png) as image:
+            with Image.open(BytesIO(received)) as image:
                 recovered = method.extract(np.array(image))
             assert recovered == memo
             assert stego_text.extract_id(recovered)[0] == recipient_id
+
+
+def test_transfer_chunks():
+    class ChunkedConnection(BytesIO):
+        def recv(self, size):
+            return self.read(min(size, 2))
+
+    png = tcp_transfer.PNG_SIGNATURE
+    packet = bytes([1]) + len(png).to_bytes(4, "big") + png
+    assert tcp_transfer.receive_png(ChunkedConnection(packet)) == ("dct", png)
+    try:
+        tcp_transfer.receive_png(ChunkedConnection(packet[:-1]))
+    except ValueError as error:
+        assert "before the transfer finished" in str(error)
+    else:
+        raise AssertionError("An incomplete transfer was accepted.")
 
 
 # Python sets __name__ to "__main__" when this file is run directly.
@@ -69,4 +103,5 @@ if __name__ == "__main__":
     test_lsb()
     test_dct()
     test_full_chain()
+    test_transfer_chunks()
     print("All tests passed")

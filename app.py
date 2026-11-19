@@ -25,6 +25,13 @@ def read_image(source):
         return np.array(image.convert("RGB"))
 
 
+def image_buffer(image, image_format, **options):
+    # BytesIO acts as a binary file. **options passes settings such as JPEG quality.
+    buffer = BytesIO()
+    Image.fromarray(image).save(buffer, format=image_format, **options)
+    return buffer
+
+
 def show_memos(original, recipient_id):
     # This nested callback can use recipient_id from the enclosing function.
     def highlight(match):
@@ -55,20 +62,21 @@ def sender():
     # zip pairs each synonym pair with its counts. any detects a nonzero count.
     missing = [" / ".join(pair) for pair, votes in zip(PAIRS, votes_for(memo)) if not any(votes)]
     st.caption(f"{len(PAIRS) - len(missing)}/{len(PAIRS)} synonym pairs present")
-    if missing:
-        st.warning("Add a word from each missing pair: " + ", ".join(missing))
     show_memos(memo, recipient)
     if missing:
+        st.warning("Add a word from each missing pair: " + ", ".join(missing))
         return
 
     personalised = embed_id(memo, recipient)
     used = len(personalised.encode("utf-8"))
     st.subheader("3. Image embedding")
+    algorithm = METHODS[method]
+    source = cover_upload if cover_upload is not None else SAMPLE
     try:
-        cover = read_image(cover_upload if cover_upload is not None else SAMPLE)
-        capacity = METHODS[method].capacity_bytes(cover)
+        cover = read_image(source)
+        capacity = algorithm.capacity_bytes(cover)
         st.caption(f"Capacity used: {used:,} of {capacity:,} bytes")
-        stego = METHODS[method].embed(cover, personalised)
+        stego = algorithm.embed(cover, personalised)
     except (OSError, ValueError, Image.DecompressionBombError) as error:
         st.error(f"Could not create the stego image. {error}")
         return
@@ -81,10 +89,7 @@ def sender():
     for column, image, caption in zip(st.columns(3), (cover, stego, difference), captions):
         column.image(image, caption=caption)
     st.caption(f"PSNR: {psnr:.2f} dB")
-    # BytesIO acts like an open binary file in memory for the PNG encoder.
-    png = BytesIO()
-    Image.fromarray(stego).save(png, format="PNG")
-    data = png.getvalue()
+    data = image_buffer(stego, "PNG").getvalue()
     st.session_state.sent = (data, method)
     label = f"Download {method} PNG for {RECIPIENTS[recipient]}"
     filename = f"leaktrace-{recipient}-{method.lower()}.png"
@@ -103,21 +108,22 @@ def receiver():
     with st.expander("JPEG compression demo"):
         quality = st.slider("JPEG quality", 50, 95, 85)
         simulate = st.button("Simulate JPEG compression", disabled=unavailable)
-    if extract or simulate:
-        try:
-            image = read_image(upload if upload is not None else BytesIO(sent_png))
-            memo = METHODS[method].extract(image)
-            st.text(memo)
-            if simulate:
-                jpeg_results(image, memo, method, quality)
-        except (OSError, ValueError, Image.DecompressionBombError) as error:
-            st.error(str(error))
+    if not (extract or simulate):
+        return
+
+    source = upload if upload is not None else BytesIO(sent_png)
+    try:
+        image = read_image(source)
+        memo = METHODS[method].extract(image)
+        st.text(memo)
+        if simulate:
+            jpeg_results(image, memo, method, quality)
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        st.error(str(error))
 
 
 def jpeg_results(image, memo, method, quality):
-    data = BytesIO()
-    Image.fromarray(image).save(data, format="JPEG", quality=quality)
-    compressed = read_image(data)
+    compressed = read_image(image_buffer(image, "JPEG", quality=quality))
     rows = []
     for name, algorithm in METHODS.items():
         try:
@@ -137,12 +143,13 @@ def trace():
         return
     recipient, bits = extract_id(leaked)
     rows = []
-    for pair, votes, bit in zip(PAIRS, votes_for(leaked), bits):
+    digits = ["?" if bit is None else str(bit) for bit in bits]
+    for pair, votes, digit in zip(PAIRS, votes_for(leaked), digits):
         # The generator passes only the words with nonzero counts to join.
         words = ", ".join(word for word, count in zip(pair, votes) if count)
-        rows.append({"Pair": " / ".join(pair), "Found": words or "Not found", "Bit": "?" if bit is None else str(bit)})
+        rows.append({"Pair": " / ".join(pair), "Found": words or "Not found", "Bit": digit})
     st.table(rows)
-    st.write("Recovered bits · `" + "".join("?" if bit is None else str(bit) for bit in bits) + "`")
+    st.write("Recovered bits · `" + "".join(digits) + "`")
     if recipient is None:
         st.warning("Could not recover the full ID. Some synonym pairs are missing or tied.")
     elif recipient not in RECIPIENTS:

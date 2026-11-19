@@ -11,7 +11,7 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Run `python test_all.py` to check all 255 fingerprint IDs and the PNG round trip for three recipients with both image methods.
+Run `python test_all.py` to check all 255 fingerprint IDs, short and incomplete socket reads, and the PNG transfer and recovery for three recipients with both image methods.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ flowchart TD
 1. **Sender** chooses Asha and a cover image. Asha's ID, `00000001`, changes `fast` to `quick` in the example memo. Sender embeds the personalized memo with LSB or DCT and exports a PNG.
 2. **Recipient** takes one of two image paths.
 
-   - **PNG path.** Keeping the exported PNG intact preserves the pixel values. The recipient uses the original embedding method, LSB or DCT, to recover the memo. The tab accepts an upload or uses the latest successful Sender output from the same session.
+   - **PNG path.** Keeping the exported PNG intact preserves the pixel values. The recipient uses the original embedding method, LSB or DCT, to recover the memo. The tab accepts an upload or uses the latest successful Sender output from the same session. The [TCP demo](#tcp-transfer-demo) transfers the exported PNG between two terminals before upload.
    - **JPEG path.** The compression demo recovers the original memo as a reference, re-encodes the image at the selected JPEG quality, and tries both extractors on the resulting image. It counts recovery only when the decoded memo matches the reference exactly. Recompression can alter both RGB channel bits and DCT coefficients. In the bundled trials, DCT recovered all three memos at qualities 95, 85, and 75, while LSB recovered none. See the [JPEG recompression results](#jpeg-recompression-results).
 3. **Leak Trace** uses the same text decoder for both paths. If the JPEG path fails to recover the memo, that path ends at image extraction. With Asha's recovered memo from either path, the decoder reads `quick` for the last bit, reconstructs `00000001`, and looks up Asha in the registry.
 
@@ -84,7 +84,8 @@ To calculate capacity, start with one bit per RGB channel for LSB, or one bit pe
 | [`stego_text.py`](stego_text.py) | Defines the synonym pairs and encodes or recovers the recipient ID. |
 | [`stego_lsb.py`](stego_lsb.py) | Implements LSB and provides the shared payload packing and decoding helpers. |
 | [`stego_dct.py`](stego_dct.py) | Implements DCT with NumPy and SciPy and uses the shared payload helpers. |
-| [`test_all.py`](test_all.py) | Checks text fingerprints and PNG round trips through both embedding methods. |
+| [`tcp_transfer.py`](tcp_transfer.py) | Sends and receives exported PNGs and their embedding method over localhost TCP. |
+| [`test_all.py`](test_all.py) | Checks text fingerprints, socket reads, and PNG round trips through both embedding methods. |
 
 Both image modules expose `capacity_bytes(image)`, `embed(image, text)`, and `extract(image)`. The image is an 8-bit RGB NumPy array with shape `(height, width, 3)`. Embedding returns a new array so Sender can compare it with the original cover.
 
@@ -99,6 +100,48 @@ Both image modules expose `capacity_bytes(image)`, `embed(image, text)`, and `ex
 ![Recipient displaying the recovered memo and JPEG compression results](docs/recipient.png)
 
 ![Leak Trace showing the synonym table and the result for Asha](docs/trace.png)
+
+## TCP transfer demo
+
+Streamlit creates and extracts the hidden memo. The two TCP commands move the exported PNG between terminals on the same computer. The download and upload connect the two parts of the demo.
+
+```mermaid
+flowchart TD
+    Sender["Streamlit Sender · Personalize the memo for Asha"]
+    Export["Embed with DCT and download leaktrace-1-dct.png"]
+    Send["CMD sender · Send method, length, and PNG bytes"]
+    Receive["CMD receiver · Save received.png"]
+    Extract["Streamlit Recipient · Upload PNG and extract with DCT"]
+    Trace["Leak Trace · Decode the pasted memo as Asha, ID 1"]
+    Sender --> Export --> Send
+    Send -->|"TCP on loopback port 5000"| Receive
+    Receive --> Extract --> Trace
+```
+
+### Try it in Windows Command Prompt
+
+1. Start Streamlit using the [local setup](#run-locally) and open [LeakTrace](http://127.0.0.1:8501). In **Sender**, choose Asha and **DCT**, then save `leaktrace-1-dct.png` in the project directory. Asha's ID is `00000001`, so the example memo uses `quick` for its last bit.
+2. In **CMD window 1**, start the TCP receiver. Replace `C:\path\to\LEAKTRACE` with your project path. The `/d` flag lets CMD switch drives as well as directories.
+
+   ```cmd
+   cd /d "C:\path\to\LEAKTRACE"
+   python tcp_transfer.py receive received.png
+   ```
+
+3. When window 1 prints `Listening on 127.0.0.1:5000`, send the image from **CMD window 2**.
+
+   ```cmd
+   cd /d "C:\path\to\LEAKTRACE"
+   python tcp_transfer.py send leaktrace-1-dct.png dct
+   ```
+
+4. After window 1 prints `Saved`, upload `received.png` in **Recipient**, select **DCT**, and click **Extract**. Paste the recovered memo into **Leak Trace** and click **Trace leak**. The expected result is `Asha (ID 1)`.
+
+If you are using a project virtual environment named `.venv`, you can use `.venv\Scripts\python.exe` in place of `python` in both windows. To try LSB, export an LSB PNG, pass its filename and `lsb` to the sender, and select **LSB** in Recipient. Pick a fresh output filename if `received.png` already exists.
+
+### What crosses the connection
+
+Port **8501** serves the Streamlit page. Port **5000** handles the localhost TCP transfer. The TCP sender writes one method byte (0 for LSB, 1 for DCT), four bytes for the PNG length in big-endian order, and the original PNG bytes. The receiver reads until it has the declared byte count and saves one PNG per run, up to 10 MiB. This path preserves the PNG byte for byte. It uses unencrypted TCP on localhost.
 
 ## JPEG recompression results
 

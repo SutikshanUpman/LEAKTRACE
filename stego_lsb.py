@@ -2,7 +2,8 @@
 
 import numpy as np
 
-HEADER_BITS = 32
+HEADER_BYTES = 4
+HEADER_BITS = 8 * HEADER_BYTES
 NO_MESSAGE = "No valid hidden message found. Check the image and method."
 
 
@@ -17,7 +18,7 @@ def pack_message(text, capacity):
     if len(data) > capacity:
         raise ValueError(f"Message uses {len(data)} bytes, but this image holds {capacity}.")
     # to_bytes stores the byte count in four bytes, most significant byte first.
-    payload = len(data).to_bytes(4, "big") + data
+    payload = len(data).to_bytes(HEADER_BYTES, "big") + data
     # frombuffer reads the bytes as uint8 values. unpackbits expands each into eight bits.
     return np.unpackbits(np.frombuffer(payload, dtype=np.uint8))
 
@@ -44,12 +45,16 @@ def embed(img, text):
     # flatten creates a one-dimensional copy. & clears the lowest bit and | sets it
     # to the corresponding payload bit. Both operators act element by element.
     flat = img.flatten()
-    flat[:bits.size] = (flat[:bits.size] & 0xFE) | bits
+    channels = flat[:bits.size]
+    channels[:] = (channels & 0xFE) | bits
     return flat.reshape(img.shape)
 
 
 def extract(img):
     # ravel gives a flat view when possible. & 1 keeps only the lowest bit.
     flat = img.ravel()
-    length = message_length(flat[:HEADER_BITS] & 1, capacity_bytes(img))
-    return decode_message(flat[HEADER_BITS:HEADER_BITS + 8 * length] & 1)
+    header = flat[:HEADER_BITS] & 1
+    length = message_length(header, capacity_bytes(img))
+    end = HEADER_BITS + 8 * length
+    data = flat[HEADER_BITS:end] & 1
+    return decode_message(data)

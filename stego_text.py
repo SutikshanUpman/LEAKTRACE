@@ -3,11 +3,19 @@
 import re
 
 PAIRS = [
-    ("big", "large"), ("start", "begin"), ("help", "assist"), ("buy", "purchase"),
-    ("show", "display"), ("need", "require"), ("end", "finish"), ("fast", "quick"),
+    ("big", "large"),
+    ("start", "begin"),
+    ("help", "assist"),
+    ("buy", "purchase"),
+    ("show", "display"),
+    ("need", "require"),
+    ("end", "finish"),
+    ("fast", "quick"),
 ]
-# The nested comprehension visits each pair, then maps each word to (pair index, bit).
-LOOKUP = {word: (index, bit) for index, pair in enumerate(PAIRS) for bit, word in enumerate(pair)}
+LOOKUP = {}
+for index, (zero_word, one_word) in enumerate(PAIRS):
+    LOOKUP[zero_word] = (index, 0)
+    LOOKUP[one_word] = (index, 1)
 # r keeps regex backslashes literal. \b marks word boundaries and | separates alternatives.
 # (?ai:...) groups the alternatives and scopes ASCII case-insensitive matching to them.
 PATTERN = re.compile(r"\b(?ai:" + "|".join(LOOKUP) + r")\b")
@@ -27,7 +35,9 @@ def embed_id(text, recipient_id):
         replacement = PAIRS[index][bit]
         if word.isupper():
             return replacement.upper()
-        return replacement.capitalize() if word[0].isupper() else replacement
+        if word[0].isupper():
+            return replacement.capitalize()
+        return replacement
 
     # sub calls swap for each regex match and inserts the string it returns.
     return PATTERN.sub(swap, text)
@@ -52,5 +62,5 @@ def extract_id(text):
 
 
 def coverage(text):
-    # The generator yields one Boolean per pair. sum counts True as 1.
-    return sum(bool(zero or one) for zero, one in votes_for(text))
+    # any checks whether either word was found. sum counts True as 1.
+    return sum(any(counts) for counts in votes_for(text))
