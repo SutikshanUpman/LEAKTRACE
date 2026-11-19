@@ -108,9 +108,9 @@ Streamlit creates and extracts the hidden memo. The two TCP commands move the ex
 ```mermaid
 flowchart TD
     Sender["Streamlit Sender · Personalize the memo for Asha"]
-    Export["Embed with DCT and download leaktrace-1-dct.png"]
+    Export["Embed with DCT and save the PNG in the sender folder"]
     Send["CMD sender · Send method, length, and PNG bytes"]
-    Receive["CMD receiver · Save received.png"]
+    Receive["CMD receiver · Save the PNG in the receiver folder"]
     Extract["Streamlit Recipient · Upload PNG and extract with DCT"]
     Trace["Leak Trace · Decode the pasted memo as Asha, ID 1"]
     Sender --> Export --> Send
@@ -120,22 +120,29 @@ flowchart TD
 
 ### Try it in Windows Command Prompt
 
-1. Start Streamlit using the [local setup](#run-locally) and open [LeakTrace](http://127.0.0.1:8501). In **Sender**, choose Asha and **DCT**, then save `leaktrace-1-dct.png` in the project directory. Asha's ID is `00000001`, so the example memo uses `quick` for its last bit.
-2. In **CMD window 1**, start the TCP receiver. Replace `C:\path\to\LEAKTRACE` with your project path. The `/d` flag lets CMD switch drives as well as directories.
+1. In **CMD window 1**, go to the project folder and create separate folders for exported and received images. Replace `C:\path\to\LEAKTRACE` with your project path. The `/d` flag switches drives as well as directories.
 
    ```cmd
    cd /d "C:\path\to\LEAKTRACE"
-   python tcp_transfer.py receive received.png
+   if not exist "samples\output\sender" mkdir "samples\output\sender"
+   if not exist "samples\output\receiver" mkdir "samples\output\receiver"
    ```
 
-3. When window 1 prints `Listening on 127.0.0.1:5000`, send the image from **CMD window 2**.
+2. Start Streamlit using the [local setup](#run-locally) and open [LeakTrace](http://127.0.0.1:8501). In **Sender**, choose Asha and **DCT**, then put the downloaded PNG at `samples\output\sender\leaktrace-1-dct.png`. Asha's ID is `00000001`, so the example memo uses `quick` for its last bit.
+3. Start the receiver in **CMD window 1**.
+
+   ```cmd
+   python tcp_transfer.py receive "samples\output\receiver\received.png"
+   ```
+
+4. When window 1 prints `Listening on 127.0.0.1:5000`, send the image from **CMD window 2**.
 
    ```cmd
    cd /d "C:\path\to\LEAKTRACE"
-   python tcp_transfer.py send leaktrace-1-dct.png dct
+   python tcp_transfer.py send "samples\output\sender\leaktrace-1-dct.png" dct
    ```
 
-4. After window 1 prints `Saved`, upload `received.png` in **Recipient**, select **DCT**, and click **Extract**. Paste the recovered memo into **Leak Trace** and click **Trace leak**. The expected result is `Asha (ID 1)`.
+5. After window 1 prints `Saved`, upload `samples\output\receiver\received.png` in **Recipient**, select **DCT**, and click **Extract**. Paste the recovered memo into **Leak Trace** and click **Trace leak**. The expected result is `Asha (ID 1)`.
 
 If you are using a project virtual environment named `.venv`, you can use `.venv\Scripts\python.exe` in place of `python` in both windows. To try LSB, export an LSB PNG, pass its filename and `lsb` to the sender, and select **LSB** in Recipient. Pick a fresh output filename if `received.png` already exists.
 
