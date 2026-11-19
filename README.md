@@ -15,22 +15,35 @@ Run `python test_all.py` to check all 255 fingerprint IDs and the PNG round trip
 
 ## Architecture
 
-LeakTrace uses **word choice to identify a recipient's copy** and **image embedding to carry that copy in a PNG**.
+LeakTrace uses **text steganography** to encode a recipient ID in the memo's wording, then **image steganography** to embed that memo in a cover image. Sender exports a PNG. The two paths below show what happens when the PNG is kept as-is or recompressed as JPEG.
 
 ```mermaid
 flowchart TD
-    Sender["Sender · Personalize and embed the memo"]
-    Recipient["Recipient · Extract the memo"]
-    Trace["Leak Trace · Recover the recipient ID"]
-    Sender -->|"Stego PNG"| Recipient
-    Recipient -->|"Copied memo text"| Trace
+    Input["Sender · Original memo and recipient ID"]
+    Fingerprint["Text steganography · Encode ID in synonym choices"]
+    Embed["Image steganography · Embed memo with LSB or DCT"]
+    Export["Export stego PNG"]
+    PNG["PNG · Extract with original method"]
+    JPEG["JPEG · Recompress, then try extraction"]
+    Trace["Text steganography · Decode ID from pasted memo"]
+    Result["Leak Trace · Look up the recovered ID"]
+
+    Input --> Fingerprint --> Embed --> Export
+    Export -->|"Keep lossless PNG"| PNG
+    Export -->|"Recompress as lossy JPEG"| JPEG
+    PNG -->|"Recovered memo text"| Trace
+    JPEG -->|"If the memo survives"| Trace
+    Trace --> Result
 ```
 
 ### Follow one memo
 
 1. **Sender** chooses Asha and a cover image. Asha's ID, `00000001`, changes `fast` to `quick` in the example memo. Sender embeds the personalized memo with LSB or DCT and exports a PNG.
-2. **Recipient** opens the PNG and uses the same embedding method to recover the personalized memo. In the same Streamlit session, Recipient can use the latest successful Sender output. An upload takes precedence.
-3. **Leak Trace** reads the synonym choices in a pasted copy of the memo, reconstructs `00000001`, and looks up Asha in the recipient registry. The pasted text is all this step needs.
+2. **Recipient** takes one of two image paths.
+
+   - **PNG path.** Keeping the exported PNG intact preserves the pixel values. The recipient uses the original embedding method, LSB or DCT, to recover the memo. The tab accepts an upload or uses the latest successful Sender output from the same session.
+   - **JPEG path.** The compression demo recovers the original memo as a reference, re-encodes the image at the selected JPEG quality, and tries both extractors on the resulting image. It counts recovery only when the decoded memo matches the reference exactly. Recompression can alter both RGB channel bits and DCT coefficients. In the bundled trials, DCT recovered all three memos at qualities 95, 85, and 75, while LSB recovered none. See the [JPEG recompression results](#jpeg-recompression-results).
+3. **Leak Trace** uses the same text decoder for both paths. If the JPEG path fails to recover the memo, that path ends at image extraction. With Asha's recovered memo from either path, the decoder reads `quick` for the last bit, reconstructs `00000001`, and looks up Asha in the registry.
 
 ### How the wording carries the ID
 
