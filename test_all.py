@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 import socket
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -97,6 +99,29 @@ def test_transfer_chunks():
         raise AssertionError("An incomplete transfer was accepted.")
 
 
+def test_transfer_file_checks():
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "existing.png"
+        path.write_bytes(b"example")
+        with patch.object(socket, "create_connection") as connect:
+            try:
+                tcp_transfer.send_file(path, "dct")
+            except ValueError as error:
+                assert "Choose a PNG" in str(error)
+            else:
+                raise AssertionError("An invalid sender file was accepted.")
+            connect.assert_not_called()
+        with patch.object(socket, "create_server") as listen:
+            try:
+                tcp_transfer.receive_file(path)
+            except FileExistsError:
+                pass
+            else:
+                raise AssertionError("An existing output path was accepted.")
+            listen.assert_not_called()
+        assert path.read_bytes() == b"example"
+
+
 # Python sets __name__ to "__main__" when this file is run directly.
 if __name__ == "__main__":
     test_text()
@@ -104,4 +129,5 @@ if __name__ == "__main__":
     test_dct()
     test_full_chain()
     test_transfer_chunks()
+    test_transfer_file_checks()
     print("All tests passed")

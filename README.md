@@ -2,6 +2,8 @@
 
 LeakTrace is a local Streamlit demo that fingerprints a memo for a recipient by changing synonym choices, embeds the personalized memo in an image, and traces a pasted copy from its wording.
 
+The [project report](output/pdf/LeakTrace_Project_Report.pdf) covers the design and measured JPEG results.
+
 ## Run locally
 
 Use Python 3.10 or newer. From the repository directory, run these commands in a virtual environment.
@@ -41,7 +43,7 @@ flowchart TD
 1. **Sender** chooses Asha and a cover image. Asha's ID, `00000001`, changes `fast` to `quick` in the example memo. Sender embeds the personalized memo with LSB or DCT and exports a PNG.
 2. **Recipient** takes one of two image paths.
 
-   - **PNG path.** Keeping the exported PNG intact preserves the pixel values. The recipient uses the original embedding method, LSB or DCT, to recover the memo. The tab accepts an upload or uses the latest successful Sender output from the same session. The [TCP demo](#tcp-transfer-demo) transfers the exported PNG between two terminals before upload.
+   - **PNG path.** Keeping the exported PNG intact preserves the pixel values. The recipient uses the original embedding method, LSB or DCT, to recover the memo. The tab accepts an upload or uses the PNG from the current valid Sender setup in the same session. The [TCP demo](#tcp-transfer-demo) transfers the exported PNG between two terminals before upload.
    - **JPEG path.** The compression demo recovers the original memo as a reference, re-encodes the image at the selected JPEG quality, and tries both extractors on the resulting image. It counts recovery only when the decoded memo matches the reference exactly. Recompression can alter both RGB channel bits and DCT coefficients. In the bundled trials, DCT recovered all three memos at qualities 95, 85, and 75, while LSB recovered none. See the [JPEG recompression results](#jpeg-recompression-results).
 3. **Leak Trace** uses the same text decoder for both paths. If the JPEG path fails to recover the memo, that path ends at image extraction. With Asha's recovered memo from either path, the decoder reads `quick` for the last bit, reconstructs `00000001`, and looks up Asha in the registry.
 
@@ -120,16 +122,15 @@ flowchart TD
 
 ### Try it in Windows Command Prompt
 
-1. In **CMD window 1**, go to the project folder and create separate folders for exported and received images. Replace `C:\path\to\LEAKTRACE` with your project path. The `/d` flag switches drives as well as directories.
+1. In **CMD window 1**, go to the project folder and create the sender output folder. Replace `C:\path\to\LEAKTRACE` with your project path. The `/d` flag switches drives as well as directories.
 
    ```cmd
    cd /d "C:\path\to\LEAKTRACE"
    if not exist "samples\output\sender" mkdir "samples\output\sender"
-   if not exist "samples\output\receiver" mkdir "samples\output\receiver"
    ```
 
-2. Start Streamlit using the [local setup](#run-locally) and open [LeakTrace](http://127.0.0.1:8501). In **Sender**, choose Asha and **DCT**, then put the downloaded PNG at `samples\output\sender\leaktrace-1-dct.png`. Asha's ID is `00000001`, so the example memo uses `quick` for its last bit.
-3. Start the receiver in **CMD window 1**.
+2. Start Streamlit using the [local setup](#run-locally) and open [LeakTrace](http://127.0.0.1:8501). In **Sender**, choose Asha and **DCT**, then put the downloaded PNG at `samples\output\sender\leaktrace-1-dct.png`. Asha's ID is `00000001`, so the example memo uses `quick` for its last bit. You can also copy the [bundled Asha demo PNG](samples/demo-asha-dct.png) to that sender path.
+3. Start the receiver in **CMD window 1**. It creates the receiver folder if needed.
 
    ```cmd
    python tcp_transfer.py receive "samples\output\receiver\received.png"
@@ -148,7 +149,7 @@ If you are using a project virtual environment named `.venv`, you can use `.venv
 
 ### What crosses the connection
 
-Port **8501** serves the Streamlit page. Port **5000** handles the localhost TCP transfer. The TCP sender writes one method byte (0 for LSB, 1 for DCT), four bytes for the PNG length in big-endian order, and the original PNG bytes. The receiver reads until it has the declared byte count and saves one PNG per run, up to 10 MiB. This path preserves the PNG byte for byte. It uses unencrypted TCP on localhost.
+Port **8501** serves the Streamlit page. Port **5000** handles the localhost TCP transfer. The TCP sender writes one method byte (0 for LSB, 1 for DCT), four bytes for the PNG length in big-endian order, and the original PNG bytes. The receiver reads until it has the declared byte count and saves one PNG per run, up to 10 MiB. This path preserves the PNG byte for byte. It uses unencrypted TCP on localhost. Git ignores `samples/output/` so each run can save its own files there.
 
 ## JPEG recompression results
 

@@ -52,13 +52,17 @@ def votes_for(text):
     return votes
 
 
-def extract_id(text):
+def decode_votes(votes):
     # int converts the comparison to 0 or 1. None represents a tied or missing bit.
-    bits = [None if zero == one else int(one > zero) for zero, one in votes_for(text)]
+    bits = [None if zero == one else int(one > zero) for zero, one in votes]
     if None in bits:
         return None, bits
     # map turns the bits into strings. int(..., 2) reads their joined digits in base two.
     return int("".join(map(str, bits)), 2), bits
+
+
+def extract_id(text):
+    return decode_votes(votes_for(text))
 
 
 def coverage(text):

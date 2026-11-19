@@ -16,7 +16,7 @@ def capacity_bytes(img):
 
 
 def pack_message(text, capacity):
-    # Capacity bytes mein hai. é jaise ek character ko bhi kai bytes lag sakte hain.
+    # Capacity bytes mein hai. UTF-8 mein ek character kai bytes le sakta hai.
     data = text.encode("utf-8")
     if not data:
         raise ValueError("Enter a message first.")
@@ -29,11 +29,12 @@ def pack_message(text, capacity):
 
 
 def message_length(header, capacity):
+    if header.size != HEADER_BITS:
+        raise ValueError(NO_MESSAGE)
     # packbits bits ko wapas bytes mein jodta hai. from_bytes unse length nikalta hai.
     length = int.from_bytes(np.packbits(header).tobytes(), "big")
-    # Memo padhne se pehle header ka size aur length ki range check karo.
     # 0 < length <= capacity ek saath length ki dono limits check karta hai.
-    if header.size != HEADER_BITS or not 0 < length <= capacity:
+    if not 0 < length <= capacity:
         raise ValueError(NO_MESSAGE)
     return length
 

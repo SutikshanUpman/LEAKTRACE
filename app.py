@@ -10,7 +10,7 @@ import streamlit as st
 
 import stego_dct
 import stego_lsb
-from stego_text import MEMO, PAIRS, PATTERN, embed_id, extract_id, votes_for
+from stego_text import MEMO, PAIRS, PATTERN, decode_votes, embed_id, votes_for
 
 RECIPIENTS = {1: "Asha", 2: "Ravi", 3: "Neha", 4: "Karan", 5: "Meera"}
 METHODS = {"LSB": stego_lsb, "DCT": stego_dct}
@@ -49,6 +49,8 @@ def show_memos(original, recipient_id):
 
 
 def sender():
+    # Clear the previous preview until the current inputs produce a PNG.
+    st.session_state.pop("sent", None)
     memo = st.text_area("Memo", MEMO, height=100)
     left, right = st.columns(2)
     # Iterating a dict yields its keys. The label function displays each ID's name.
@@ -141,12 +143,13 @@ def trace():
         submitted = st.form_submit_button("Trace leak")
     if not submitted:
         return
-    recipient, bits = extract_id(leaked)
+    votes = votes_for(leaked)
+    recipient, bits = decode_votes(votes)
     rows = []
     digits = ["?" if bit is None else str(bit) for bit in bits]
-    for pair, votes, digit in zip(PAIRS, votes_for(leaked), digits):
+    for pair, counts, digit in zip(PAIRS, votes, digits):
         # The generator passes only the words with nonzero counts to join.
-        words = ", ".join(word for word, count in zip(pair, votes) if count)
+        words = ", ".join(word for word, count in zip(pair, counts) if count)
         rows.append({"Pair": " / ".join(pair), "Found": words or "Not found", "Bit": digit})
     st.table(rows)
     st.write("Recovered bits · `" + "".join(digits) + "`")

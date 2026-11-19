@@ -23,9 +23,13 @@ def read_exact(connection, size):
     return bytes(data)
 
 
-def send_png(connection, method, png):
+def validate_png(png):
     if len(png) > MAX_BYTES or not png.startswith(PNG_SIGNATURE):
         raise ValueError("Choose a PNG file of at most 10 MiB.")
+
+
+def send_png(connection, method, png):
+    validate_png(png)
     method_code = METHODS.index(method)
     header = bytes([method_code]) + len(png).to_bytes(LENGTH_BYTES, "big")
     # sendall keeps writing until all bytes have been sent or an error occurs.
@@ -48,12 +52,17 @@ def receive_png(connection):
 def send_file(path, method):
     with path.open("rb") as source:
         png = source.read(MAX_BYTES + 1)
+    # Reject an invalid local file before using the receiver's one connection.
+    validate_png(png)
     with socket.create_connection(ADDRESS, timeout=TIMEOUT) as connection:
         send_png(connection, method, png)
     print(f"Sent {len(png)} bytes using {method.upper()}.")
 
 
 def receive_file(path):
+    if path.exists():
+        raise FileExistsError(f"Output already exists: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
     with socket.create_server(ADDRESS) as server:
         print(f"Listening on {ADDRESS[0]}:{ADDRESS[1]}", flush=True)
         connection, _ = server.accept()
